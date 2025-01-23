@@ -1,238 +1,385 @@
+//Server-side implementation in C++ for a chat server with private messages and group messaging
+
 #include <iostream>
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <string.h>
 #include <string>
-#include <thread>
-#include <mutex>
+#include <fstream>
+#include<cstring>
 #include <unordered_map>
 #include <unordered_set>
-#include <vector>
-#include <sstream>
-#include <cstring>
-#include <cstdlib>
-#include <fstream>
-#include <unistd.h>
-#include <arpa/inet.h>
+#include <thread>
+#include <mutex>
 
-#define PORT 12345
+using namespace std;
+
+#define PORT 12343
 #define BUFFER_SIZE 1024
+#define MAX_CLIENTS 100 //what is the need of defining max clients pehle se?
 
-std::mutex mtx;                                                  // Mutex for thread safety
-std::unordered_map<int, std::string> clients;                    // client socket -> username
-std::unordered_map<std::string, std::string> users;              // username -> password
-std::unordered_map<std::string, std::unordered_set<int>> groups; // group -> client sockets
+//make an unordered map for storing the online users, groups and their sockets
+unordered_map<string, int>clients; // Username --> Client socket
+unordered_map<string, string>users; // client username -> password
+unordered_map<string, unordered_set<int>>groups; //Group --> client sockets
+mutex client_mutex; //Mutex for thread-safe access to clients map
 
-void load_users()
-{
-    std::ifstream file("users.txt");
-    std::string line;
-    while (std::getline(file, line))
-    {
-        size_t pos = line.find(':');
-        if (pos != std::string::npos)
-        {
-            std::string username = line.substr(0, pos);
-            std::string password = line.substr(pos + 1);
-            users[username] = password;
-            // std::cout << username << " " << password << std::endl;
+
+//join a group
+void join_group(int sock, const string& group_name) {
+    //check if group is there
+    lock_guard<mutex> lock(client_mutex);
+    auto it = groups.find(group_name);
+    if (it == groups.end()) {
+        string errorMsg = "Group " + group_name + " does not exist!\n";
+        send(sock, errorMsg.c_str(), errorMsg.size(), 0);
+        return;
+    }
+
+    //add client
+    it->second.insert(sock);
+
+    string successMsg = "You have successfully joined the group " + group_name + ".\n";
+    send(sock, successMsg.c_str(), successMsg.size(), 0);
+}
+//create a group
+void create_group(int sock, const string& group_name){
+    //check if group is there
+    lock_guard<mutex> lock(client_mutex);
+    if (groups.find(group_name) != groups.end()) {
+        string errorMsg = "Group " + group_name + " already exists!\n";
+        send(sock, errorMsg.c_str(), errorMsg.size(), 0);
+        return;
+    }
+    
+    //add user as first member
+    groups[group_name].insert(sock);
+
+    string successMsg = "Group " + group_name + " created successfully, and you are added as the first member.\n";
+    send(sock, successMsg.c_str(), successMsg.size(), 0);
+}
+
+//leave group
+void leave_group(int sock, const std::string& group_name) {
+    //group exists?
+    lock_guard<mutex> lock(client_mutex);
+    auto it = groups.find(group_name);
+    if (it == groups.end()) {
+        string errorMsg = "Group " + group_name + " does not exist!\n";
+        send(sock, errorMsg.c_str(), errorMsg.size(), 0);
+        return;
+    }
+
+    //remove user
+    it->second.erase(sock);
+
+    //delete empty grp
+    if (it->second.empty()) {
+        groups.erase(it);
+        string deleteMsg = "Group " + group_name + " is now empty and has been deleted.\n";
+        send(sock, deleteMsg.c_str(), deleteMsg.size(), 0);
+    } else {
+        string successMsg = "You have successfully left the group " + group_name + ".\n";
+        send(sock, successMsg.c_str(), successMsg.size(), 0);
+    }
+}
+
+//print all connected clients
+void print_clients(int sock){
+    lock_guard<mutex> lock(client_mutex);  
+
+    for (const auto& client : clients) {
+        
+            string Name = "- " + client.first + "\n";
+            send(sock, Name.c_str(), Name.size(), 0);
+        }
+    }
+
+
+//print all active groups
+void print_groups(int sock) {
+    lock_guard<mutex> lock(client_mutex);  
+
+    if (groups.empty()) {
+        string noGroupsMsg = "No groups available.\n";
+        send(sock, noGroupsMsg.c_str(), noGroupsMsg.size(), 0);
+    } else {
+        for (const auto& group : groups) {
+            
+                string GroupName = "- " + group.first + "\n";
+                send(sock, GroupName.c_str(), GroupName.size(), 0);
+            
         }
     }
 }
 
-void handle_client(int client_socket)
-{
-    char buffer[BUFFER_SIZE];
-    std::string username, password;
+//send a message to a group
+void group_message(int sock, const string& group_name, const string& message) {
+        lock_guard<mutex> lock(client_mutex);
+        auto it = groups.find(group_name);
+        if (it == groups.end()) {
+            string errorMsg = "Group " + group_name + " does not exist!\n";
+            send(sock, errorMsg.c_str(), errorMsg.size(), 0);
+            return;
+        }
+        string senderName;
+        for (const auto& pair : clients) {
+            if (pair.second == sock) {
+                senderName = pair.first;
+                break;
+            }
+        }
 
-    // Authentication
-    send(client_socket, "Enter username: ", 16, 0);
-    int bytes_received = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
-    if (bytes_received <= 0)
-    {
-        close(client_socket);
-        return;
-    }
-    buffer[bytes_received] = '\0'; // Null-terminate
-    username = std::string(buffer);
-    username.erase(username.find_last_not_of(" \n\r\t") + 1); // Trim whitespace
 
-    send(client_socket, "Enter password: ", 16, 0);
-    bytes_received = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
-    if (bytes_received <= 0)
-    {
-        close(client_socket);
-        return;
-    }
-    buffer[bytes_received] = '\0'; // Null-terminate
-    password = std::string(buffer);
-    password.erase(password.find_last_not_of(" \n\r\t") + 1); // Trim whitespace
+        
+        string formattedMsg = "[" + group_name + "] " + senderName + ": " + message + "\n";
+        for (int memberSock : it->second) {
+            if (memberSock != sock) { 
+                send(memberSock, formattedMsg.c_str(), formattedMsg.size(), 0);
+            }
+        }
 
-    if (users.find(username) != users.end() && users[username] == password)
-    {
-        std::lock_guard<std::mutex> lock(mtx);
-        clients[client_socket] = username;
-        send(client_socket, "Authentication successful!\n", 27, 0);
-        // To Implement code for sending joining name for everyone except self.////// ->>>>>>weogwngowon
-    }
-    else
-    {
-        send(client_socket, "Authentication failed!\n", 23, 0);
-        close(client_socket);
-        return;
+        //confirm
+        string successMsg = "Message sent to group " + group_name + ".\n";
+        send(sock, successMsg.c_str(), successMsg.size(), 0);
     }
 
-    // Message handling loop
-    while (true)
-    {
-        memset(buffer, 0, sizeof(buffer));
-        int bytes_received = recv(client_socket, buffer, sizeof(buffer), 0);
-        if (bytes_received <= 0)
+//private messaging
+void client_message(int sock, const string& name, const string& msg) {
+    string senderName; 
+    for (const auto& pair : clients) { //find sender name using socket
+        if (pair.second == sock) {
+            senderName = pair.first;
             break;
-
-        std::string message(buffer);
-        // std::cout << message << std::endl;
-
-        if (message.starts_with("/broadcast "))
-        {
-            std::string msg = message.substr(11);
-            std::lock_guard<std::mutex> lock(mtx);
-            for (const auto &client : clients)
-            {
-                send(client.first, ("[" + clients[client_socket] + "]: " + msg).c_str(), clients[client_socket].length() + msg.length() + 5, 0);
-            }
         }
-        else if (message.starts_with("/msg "))
-        {
-            size_t space_pos = message.find(' ', 5);
-            if (space_pos != std::string::npos)
-            {
-                std::string target_user = message.substr(5, space_pos - 5);
-                std::string msg = message.substr(space_pos + 1);
-                std::lock_guard<std::mutex> lock(mtx);
-                for (const auto &client : clients)
-                {
-                    if (clients[client.first] == target_user)
-                    {
-                        send(client.first, ("[" + clients[client_socket] + "]: " + msg).c_str(), clients[client_socket].length() + msg.length() + 5, 0);
-                        break;
-                    }
-                }
-            }
-        }
-        else if (message.starts_with("/create_group "))
-        {
-            std::string group_name = message.substr(14);
-            std::lock_guard<std::mutex> lock(mtx);
-            groups[group_name].insert(client_socket);
-            send(client_socket, ("Group " + group_name + " created.\n").c_str(), group_name.length() + 20, 0);
-        }
-        else if (message.starts_with("/join_group "))
-        {
-            std::string group_name = message.substr(12);
-            std::lock_guard<std::mutex> lock(mtx);
-            // groups[group_name].insert(client_socket);
-            // send(client_socket, ("Joined group " + group_name + ".\n").c_str(), group_name.length() + 16, 0);
+    }
+    auto it = clients.find(name); //find reciever socket using name
+    if (it != clients.end()) { //banda exist karta hai ji
+        int destsock = it->second; 
+        string formattedMsg = "[" + senderName + "] " + msg; 
+        send(destsock, formattedMsg.c_str(), formattedMsg.size(), 0); 
+    } else {
+        cout << "User " << name << " not found!" << endl;
+        string errormsg = "User " +name+ " not found!";
+        send(sock, errormsg.c_str(), errormsg.size(), 0);
+    }
+}
 
-            if (groups.find(group_name) == groups.end())
-            {
-                send(client_socket, ("Error: Group " + group_name + " does not exist.\n").c_str(),
-                     ("Error: Group " + group_name + " does not exist.\n").length(), 0);
-            }
-            else
-            {
-                groups[group_name].insert(client_socket);
-                send(client_socket, ("Joined group " + group_name + ".\n").c_str(),
-                     ("Joined group " + group_name + ".\n").length(), 0);
-            }
-        }
-        else if (message.starts_with("/leave_group "))
-        {
-            std::string group_name = message.substr(14);
-            std::lock_guard<std::mutex> lock(mtx);
-            groups[group_name].erase(client_socket);
-            send(client_socket, ("Left group " + group_name + ".\n").c_str(), group_name.length() + 14, 0);
-        }
-        else if (message.starts_with("/group_msg "))
-        {
-            size_t space_pos1 = message.find(' ', 10); // Used to find spaces after each word
-            if (space_pos1 != std::string::npos)
-            {
-                size_t space_pos2 = message.find(' ', space_pos1 + 1);
-
-                // std::cout << space_pos1 << " " << space_pos2 << " " << std::string::npos << std::endl;
-
-                std::string group_name = message.substr(space_pos1 + 1, (space_pos2 == std::string::npos ? message.length() : space_pos2) - (space_pos1 + 1));
-
-                std::string msg = (space_pos2 == std::string::npos) ? message.substr(space_pos1 + 1 + group_name.length()) : message.substr(space_pos2 + 1);
-
-                // extra whitespace trim karne ke liye
-                msg.erase(0, msg.find_first_not_of(" \t\n"));
-
-                // std::cout << group_name << " " << msg << std::endl;
-
-                std::lock_guard<std::mutex> lock(mtx);
-                for (int member : groups[group_name])
-                {
-                    send(member, ("[" + clients[client_socket] + "]: " + msg).c_str(), clients[client_socket].length() + msg.length() + 5, 0);
-                }
-            }
+void broadcast_message(int sock, const string& msg) {
+    std::string senderName;
+    for (const auto& pair : clients) {
+        if (pair.second == sock) {
+            senderName = pair.first;
+            break;
         }
     }
 
-    // Cleanup on disconnect
-    std::lock_guard<std::mutex> lock(mtx);
-    clients.erase(client_socket);
-    for (auto &group : groups)
+
+    std::string formattedMsg = "[Broadcast from " + senderName + "] " + msg;
+
+    for (const auto& pair : clients) {
+        if (pair.second != sock) { 
+            send(pair.second, formattedMsg.c_str(), formattedMsg.size(), 0);
+        }
+    }
+
+}
+//define a function for parsing the messages the client has sent and forwarding to the required sockets
+void process_message(const string& message, int client_socket){
+    if (message.rfind("/msg", 0) == 0){
+        size_t space1 = message.find(' ');
+        size_t space2 = message.find(' ', space1 + 1);
+        if (space1 != string::npos && space2 != string::npos) {
+            std::string client_name = message.substr(space1 + 1, space2 - space1 - 1);
+            std::string client_msg = message.substr(space2 + 1);
+            // Call function to handle client messaging
+            client_message(client_socket, client_name, client_msg);
+        }
+    }
+    else if (message.rfind("/broadcast", 0) == 0){
+        // Extract the message after "/broadcast"
+    size_t space = message.find(' ');
+    if (space != string::npos) {
+        string broadcast_msg = message.substr(space + 1);
+        // Call function to handle broadcasting
+        broadcast_message(client_socket, broadcast_msg);
+    }
+}
+    else if (message.rfind("/create_group", 0) == 0){
+    size_t space = message.find(' ');
+    if (space != string::npos) {
+        string group_name = message.substr(space + 1);
+        create_group(client_socket, group_name);
+    }
+
+    }
+    else if (message.rfind("/join_group", 0) == 0) {
+    size_t space = message.find(' ');
+    if (space != string::npos) {
+        string group_name = message.substr(space + 1);
+        join_group(client_socket, group_name);
+    }
+}   else if (message.rfind("/leave_group", 0) == 0) {
+    size_t space = message.find(' ');
+    if (space != string::npos) {
+        string group_name = message.substr(space + 1);
+        leave_group(client_socket, group_name);
+    }
+}
+    else if (message.rfind("/group_msg", 0) == 0){ 
+        size_t space1 = message.find(' ');
+        size_t space2 = message.find(' ', space1 + 1);
+        if (space1 != string::npos && space2 != string::npos) {
+            string group_name = message.substr(space1 + 1, space2 - space1 - 1);
+            string group_msg = message.substr(space2 + 1);
+            
+            group_message(client_socket, group_name, group_msg);
+        }
+    }
+    else if (message.rfind("/grps", 0) == 0){ 
+
+        print_groups(client_socket);
+        }
+    else if (message.rfind("/active", 0) == 0){
+        print_clients(client_socket);
+    }
+    }
+
+
+
+//Define a function to handle each client by assigning each of them a thread for communication
+void handle_client(int clientSocket){
+    //define buffers to store the username and password entered by the user
+    char username[BUFFER_SIZE], password[BUFFER_SIZE];
+    //Ask the client for username
+    const char* message1 = "Enter the username: ";
+    send(clientSocket, message1, strlen(message1), 0);
+    // Receive the username from the client
+    memset(username, 0, BUFFER_SIZE);  // Clear the buffer to avoid old data
+    int bytesReceived = recv(clientSocket, username, BUFFER_SIZE, 0);  // Receive username
+    if (bytesReceived <= 0)
     {
-        group.second.erase(client_socket);
+        close(clientSocket);
+        return;
+    }
+    username[bytesReceived] = '\0'; // Null-terminate
+    string receivedUsername(username);  // Store the received username
+
+
+    //Ask the client for username
+    const char* message2 = "Enter the password: ";
+    send(clientSocket, message2, strlen(message2), 0);
+    // Receive the password from the client
+    memset(password, 0, BUFFER_SIZE);  // Clear the buffer to avoid old data
+    bytesReceived = recv(clientSocket, password, BUFFER_SIZE, 0);  // Receive password
+    
+    
+    if (bytesReceived <= 0)
+    {
+        close(clientSocket);
+        return;
+    }
+    username[bytesReceived] = '\0'; // Null-terminate
+    string receivedPassword(password);  // Store the received password
+
+    // Check the users file for authentication
+    string struser = receivedUsername + ":" + receivedPassword;
+    ifstream in("users.txt");
+    string strfile;
+    bool authenticated = false;
+    while (getline(in, strfile)){
+        if (strfile == struser) {
+            const char* messagever = "Welcome to the chat server!\nTo broadcast the message to all online users type /broadcast <message>\nTo send message to a specific online client type /msg <username> <message>\nTo send message to a specific group type /group_msg <group_name> <message>\nTo create a new group type /create group <group name>\nTo join an existing group type /join group <group name>\nTo leave a group type /leave group <group name>\nTo get a list of all active users type /active\nTo get a list of all groups type /grps\nEnjoy your time here!\n";
+            lock_guard<mutex> lock(client_mutex);
+            clients[receivedUsername] = clientSocket;
+            send(clientSocket, messagever, strlen(messagever), 0);
+            authenticated = true;
+         break;
+        }
+    }
+    if (!authenticated) {
+        const char* messageFail = "Authentication failed!";
+        send(clientSocket, messageFail, strlen(messageFail), 0);
     }
 
-    close(client_socket);
+    //Continue listening to messages from client without termination
+    char buffer[BUFFER_SIZE]; //create a buffer for incoming messages from the client
+    
+    while(true){
+        memset(buffer, 0, BUFFER_SIZE); //clear the buffer before receiving new data
+        int bytesReceived = recv(clientSocket, buffer, BUFFER_SIZE, 0); //store the number of bytes(packets) of messages sent from the client
+        //Check if the client has disconnected
+        if(bytesReceived <= 0){
+            cout << "Client " << receivedUsername << " disconnected.\n" << endl;
+            break;
+        }
+        //Display any message sent by the client
+        cout << receivedUsername << ":" << buffer << endl;
+        //Pass the message into the process_message
+        process_message(buffer, clientSocket);
+    }
+    //Remove the client from the map if client has disconnected and close the client socket
+    {
+        lock_guard<mutex> lock(client_mutex);
+        for (auto it = clients.begin(); it != clients.end(); ++it){
+            if (it->second == clientSocket) {
+                clients.erase(it->first);
+                break;
+            }
+        } //clients se udaya hai but groups se bhi udane ka rahega
+    }
+    close(clientSocket);
 }
 
 int main()
-{
-    load_users();
-
-    int server_socket, client_socket;
-    sockaddr_in server_addr{}, client_addr{};
-    socklen_t client_len = sizeof(client_addr);
-
+{   //create server socket to listen to clients
+    int server_socket;
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_socket < 0)
-    {
-        std::cerr << "Error creating socket." << std::endl;
+    if (server_socket == -1){
+        cerr <<"Can not create socket\n" << endl;
         return 1;
     }
 
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(PORT);
-    server_addr.sin_addr.s_addr = INADDR_ANY;
+    //define server socket address using ip and port
+    sockaddr_in serv_sock_addr{};
+    serv_sock_addr.sin_family = AF_INET;
+    serv_sock_addr.sin_port = htons(PORT);
+    inet_pton(AF_INET, "0.0.0.0", &serv_sock_addr.sin_addr);
 
-    if (bind(server_socket, (sockaddr *)&server_addr, sizeof(server_addr)) < 0)
-    {
-        std::cerr << "Error binding socket." << std::endl;
-        return 1;
+    //bind the socket to ip and port
+    if(bind(server_socket, (sockaddr*)&serv_sock_addr, sizeof(serv_sock_addr)) == -1){
+        cerr << "Can not bind to IP/Port\n" <<endl;
+        return 2;
     }
-
-    if (listen(server_socket, 5) < 0)
-    {
-        std::cerr << "Error listening on socket." << std::endl;
-        return 1;
+    //start listening on the socket
+    if (listen(server_socket, SOMAXCONN) == -1){
+        cerr << "Can't listen via socket\n" <<endl;
+        return 3;
     }
+    
+    cout << "Server is listening for incoming clients on port number" << PORT << "...\n" << endl;
 
-    std::cout << "Server is running on port " << PORT << "..." << std::endl;
+    int client_socket;
+    sockaddr_in clt_sock_addr;
+    socklen_t clientSize = sizeof(clt_sock_addr);
 
-    while (true)
-    {
-        client_socket = accept(server_socket, (sockaddr *)&client_addr, &client_len);
-        if (client_socket < 0)
-        {
-            std::cerr << "Error accepting connection." << std::endl;
-            continue;
+    while(true){
+
+        //awaits a connection, and upon recieving one creates a new socket to communicate
+        client_socket = accept(server_socket, (sockaddr*)&clt_sock_addr, &clientSize);
+        if (client_socket == -1) {
+            cerr << "Problem with client connecting!\n" <<endl;
+            return 4;
         }
-
-        std::thread(handle_client, client_socket).detach();
+        //On successful connection of client to the server, create a new thread for the client and then call the function to handle the client
+        thread(handle_client, client_socket).detach();
+        // Detach the newly created client thread to allow it to run independently from the main listening thread which can freely continue listening for new clients
+        
     }
 
     close(server_socket);
     return 0;
-}
+}   
