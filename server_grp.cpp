@@ -68,6 +68,23 @@ void join_group(int sock, const string& group_name) { //takes the socket number 
     //inform client
     string successMsg = "You have successfully joined the group " + group_name + ".\n";
     send(sock, successMsg.c_str(), successMsg.size(), 0);
+
+    // Find the username associated with the client socket
+    string username;
+    for (const auto& client : clients) {
+        if (client.second == sock) {
+            username = client.first;
+            break;
+        }
+    }
+
+    // Send a group message to all members of the group informing them of who has joined
+    string joinMsg = username + " has joined the group " + group_name + ".\n";
+    for (const auto& memberSock : it->second) {
+        if (memberSock != sock) { // Skip sending the message to the joining client
+            send(memberSock, joinMsg.c_str(), joinMsg.size(), 0);
+        }
+    }
 }
 
 //leave group
@@ -97,6 +114,23 @@ void leave_group(int sock, const std::string& group_name) { //takes the socket n
     else {
         string successMsg = "You have successfully left the group " + group_name + ".\n";
         send(sock, successMsg.c_str(), successMsg.size(), 0);
+
+        // Find the username associated with the client socket
+    string username;
+    for (const auto& client : clients) {
+        if (client.second == sock) {
+            username = client.first;
+            break;
+        }
+    }
+
+    // Send a group message to all members of the group informing them of who has left
+    string joinMsg = username + " has left the group " + group_name + ".\n";
+    for (const auto& memberSock : it->second) {
+        if (memberSock != sock) { // Skip sending the message to the leaving client
+            send(memberSock, joinMsg.c_str(), joinMsg.size(), 0);
+        }
+    }
     }
 }
 
@@ -108,7 +142,7 @@ void print_clients(int sock){ //takes the socket number to print all connected c
 
     //print clients
     for (const auto& client : clients) {
-            string Name = "- " + client.first + "\n";
+            string Name = "- " + client.first + " (Socket: " + to_string(client.second) + ")\n";
             send(sock, Name.c_str(), Name.size(), 0);
         }
     }
@@ -128,9 +162,22 @@ void print_groups(int sock) { //takes the socket number to print all active grou
     //print groups
     else {
         for (const auto& group : groups) {
-                string GroupName = "- " + group.first + "\n";
-                send(sock, GroupName.c_str(), GroupName.size(), 0);
-            
+            string groupName = "- " + group.first + "\n";
+            send(sock, groupName.c_str(), groupName.size(), 0);
+
+            // Print group members
+            for (const auto& clientSocket : group.second) {
+                // Find the username associated with the client socket
+                string username;
+                for (const auto& client : clients) {
+                    if (client.second == clientSocket) {
+                        username = client.first;
+                        break;
+                    }
+                }
+                string memberInfo = "  * " + username + " (Socket: " + to_string(clientSocket) + ")\n";
+                send(sock, memberInfo.c_str(), memberInfo.size(), 0);
+            }
         }
     }
 }
@@ -226,7 +273,7 @@ void broadcast_message(int sock, const string& msg) {//takes the socket number a
 }
 
 //process the message sent by the client
-void process_message(const string& message, int client_socket){ //takes the message and client socket to process the message depending on the command
+void process_message(const string& message, int client_socket, bool& logout_flag){ //takes the message and client socket to process the message depending on the command
 
     if (message.rfind("/msg", 0) == 0){ //check if the message is a private message
         size_t space1 = message.find(' ');
@@ -287,8 +334,15 @@ void process_message(const string& message, int client_socket){ //takes the mess
             string group_name = message.substr(space1 + 1, space2 - space1 - 1);  // Extract the group name      
             string group_msg = message.substr(space2 + 1); // Extract the message after the group name
             
-            // Call function to handle group messaging
-            group_message(client_socket, group_name, group_msg);
+            // Check if the client socket is part of the group
+            auto group_it = groups.find(group_name);
+            if (group_it != groups.end() && group_it->second.find(client_socket) != group_it->second.end()) {
+                // Call function to handle group messaging
+                group_message(client_socket, group_name, group_msg);
+            } else {
+                string errorMsg = "You are not a member of the group " + group_name + ".\n";
+                send(client_socket, errorMsg.c_str(), errorMsg.size(), 0);
+            }
         }
     }
 
@@ -303,26 +357,42 @@ void process_message(const string& message, int client_socket){ //takes the mess
         // Call function to print all active clients
         print_clients(client_socket);
     }
+
+    else if (message.rfind("/logout", 0) == 0){ //check if the message is to logout
+        logout_flag = true;
+    }
 }
 
 //Define a function to handle each client by assigning each of them a thread for communication
 void clientHandler(int clientSocket){
     
     char username[BUFFER_SIZE], password[BUFFER_SIZE]; //define buffers to store the username and password entered by the user
-    const char* message1 = "Enter the username: ";  //Ask the client for username
+    string receivedUsername, receivedPassword; //define strings to store the username and password entered by the user
+    int bytesReceived; //define a variable to store the number of bytes received from the client
+    //Ask the client for username
+
+    while(true){
+    const char* message1 = "Enter the username: ";  
     send(clientSocket, message1, strlen(message1), 0); 
    
     memset(username, 0, BUFFER_SIZE);  // Clear the buffer to avoid old data
-    int bytesReceived = recv(clientSocket, username, BUFFER_SIZE, 0);   // Receive the username from the client
+    bytesReceived = recv(clientSocket, username, BUFFER_SIZE, 0);   // Receive the username from the client
     if (bytesReceived <= 0) // Check if the client has disconnected
     {
         close(clientSocket);
         return;
     }
     username[bytesReceived] = '\0'; // Null-terminate
-    string receivedUsername(username);  // Store the received username
+    receivedUsername=username;  // Store the received username
 
-    //Ask the client for username
+    // Check if the username is already in use by another client and send a message to the client
+    if (clients.find(receivedUsername) != clients.end()) {
+            const char* messageFail = "Client already connected! Log out from previous session to connect.\n";
+            send(clientSocket, messageFail, strlen(messageFail), 0);
+            break; // Continue listening to messages from the client without termination
+     }
+    
+    //Ask the client for password
     const char* message2 = "Enter the password: ";
     send(clientSocket, message2, strlen(message2), 0);
     // Receive the password from the client
@@ -334,7 +404,7 @@ void clientHandler(int clientSocket){
         return;
     }
     username[bytesReceived] = '\0'; // Null-terminate
-    string receivedPassword(password);  // Store the received password
+    receivedPassword=password;  // Store the received password
 
     // Check the users file for authentication
     string struser = receivedUsername + ":" + receivedPassword;
@@ -342,9 +412,10 @@ void clientHandler(int clientSocket){
     string strfile;
     bool authenticated = false;
     while (getline(in, strfile)){// Check if the username and password match
-        if (strfile == struser) {
+        
+            if (strfile == struser) {
             // Send the welcome message to the client
-            const char* messagever = "Welcome to the chat server!\nTo broadcast the message to all online users type /broadcast <message>\nTo send message to a specific online client type /msg <username> <message>\nTo send message to a specific group type /group_msg <group_name> <message>\nTo create a new group type /create group <group name>\nTo join an existing group type /join group <group name>\nTo leave a group type /leave group <group name>\nTo get a list of all active users type /active\nTo get a list of all groups type /grps\nEnjoy your time here!\n";
+            const char* messagever = "Welcome to the chat server!\n\nTo broadcast the message to all online users type /broadcast <message>\nTo send message to a specific online client type /msg <username> <message>\nTo send message to a specific group type /group_msg <group_name> <message>\nTo create a new group type /create group <group name>\nTo join an existing group type /join group <group name>\nTo leave a group type /leave group <group name>\nTo get a list of all active users type /active\nTo get a list of all groups type /grps\n\nTo log out type /logout\n\nEnjoy your time here!\n ";
             
             // Lock the mutex using std::lock_guard
             lock_guard<mutex> lock(client_mutex);
@@ -360,11 +431,12 @@ void clientHandler(int clientSocket){
         const char* messageFail = "Authentication failed!";
         send(clientSocket, messageFail, strlen(messageFail), 0);
     }
-
+    
     //Continue listening to messages from client without termination
     char buffer[BUFFER_SIZE]; //create a buffer for incoming messages from the client
-    
-    while(true){
+    bool logout_flag = false; //create a flag to check if the client has logged out
+
+    while(!logout_flag){
         memset(buffer, 0, BUFFER_SIZE); //clear the buffer before receiving new data
         int bytesReceived = recv(clientSocket, buffer, BUFFER_SIZE, 0); //store the number of bytes(packets) of messages sent from the client
         //Check if the client has disconnected
@@ -375,7 +447,7 @@ void clientHandler(int clientSocket){
         //Display any message sent by the client
         cout << receivedUsername << ":" << buffer << endl;
         //Pass the message into the process_message
-        process_message(buffer, clientSocket);
+        process_message(buffer, clientSocket, logout_flag);
     }
     //Remove the client from the map if client has disconnected and close the client socket
     {   //lock the mutex using std::lock_guard
@@ -394,7 +466,14 @@ void clientHandler(int clientSocket){
         group.second.erase(clientSocket);
         }
     }
-    close(clientSocket);
+    }
+    if (bytesReceived <= 0) {
+            close(clientSocket);//close the client socket if the client has disconnected
+            return;
+        }
+    else{
+        clientHandler(clientSocket); //continue listening to messages from the client if the client has not disconnected
+    }
 }
 
 int main()
@@ -445,4 +524,4 @@ int main()
 
     close(server_socket);
     return 0;
-}   
+}
