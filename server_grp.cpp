@@ -433,7 +433,7 @@ void clientHandler(int clientSocket){
         }
     }
     if(!authenticated){
-        const char* messageFail = "\nAuthentication failed!\n\n";
+        const char* messageFail = "\nAuthentication failed!\n\n"; // Send a message to the client if authentication fails
         send(clientSocket, messageFail, strlen(messageFail), 0);
         continue;
         }
@@ -534,7 +534,6 @@ int main()
         // Detach the newly created client thread to allow it to run independently from the main listening thread which can freely continue listening for new clients
         
     }
-
     close(server_socket);
     return 0;
 }
