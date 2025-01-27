@@ -44,7 +44,7 @@ int main() {
     }
 
     server_address.sin_family = AF_INET; //specify address of server
-    server_address.sin_port = htons(12343);
+    server_address.sin_port = htons(12345);
     server_address.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     if (connect(client_socket, (sockaddr*)&server_address, sizeof(server_address)) < 0) { //connect client to server
@@ -77,10 +77,10 @@ int main() {
     recv(client_socket, buffer, BUFFER_SIZE, 0); 
     std::cout << buffer << std::endl;
 
-    if (std::string(buffer).find("Authentication failed") != std::string::npos) {
-        close(client_socket);
-        return 1;
-    }
+    // if (std::string(buffer).find("Authentication failed") != std::string::npos) {
+    //     close(client_socket);
+    //     return 1;
+    // }
 
     // Start thread for receiving messages from server
     std::thread receive_thread(handle_server_messages, client_socket);

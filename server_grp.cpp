@@ -16,7 +16,7 @@
 #include <mutex>
 using namespace std;
 //defining port number
-#define PORT 12343
+#define PORT 12345
 //defining buffer size
 #define BUFFER_SIZE 1024
 
@@ -39,7 +39,6 @@ void create_group(int sock, const string& group_name){ //takes the socket number
         send(sock, errorMsg.c_str(), errorMsg.size(), 0);
         return;
     }
-    
     //add client as first member
     groups[group_name].insert(sock);
 
@@ -365,18 +364,24 @@ void process_message(const string& message, int client_socket, bool& logout_flag
 
 //Define a function to handle each client by assigning each of them a thread for communication
 void clientHandler(int clientSocket){
-    
+
+    //the client handler shall run indefinitely until the client disconnects
+
+    //the handler shall first prompt the client to login and then listen for 
+    //messages from the client if the client is authenticated 
+
     char username[BUFFER_SIZE], password[BUFFER_SIZE]; //define buffers to store the username and password entered by the user
     string receivedUsername, receivedPassword; //define strings to store the username and password entered by the user
     int bytesReceived; //define a variable to store the number of bytes received from the client
+    
+    while(true){ //break out of this loop if the client is new and authenticated
+    
     //Ask the client for username
-
-    while(true){
-    const char* message1 = "Enter the username: ";  
+    const char* message1 = "Welcome to Wazzapp\n\nEnter the username: ";  
     send(clientSocket, message1, strlen(message1), 0); 
-   
     memset(username, 0, BUFFER_SIZE);  // Clear the buffer to avoid old data
     bytesReceived = recv(clientSocket, username, BUFFER_SIZE, 0);   // Receive the username from the client
+
     if (bytesReceived <= 0) // Check if the client has disconnected
     {
         close(clientSocket);
@@ -389,9 +394,9 @@ void clientHandler(int clientSocket){
     if (clients.find(receivedUsername) != clients.end()) {
             const char* messageFail = "Client already connected! Log out from previous session to connect.\n";
             send(clientSocket, messageFail, strlen(messageFail), 0);
-            break; // Continue listening to messages from the client without termination
+            continue; // Continue listening to messages from the client without termination
      }
-    
+
     //Ask the client for password
     const char* message2 = "Enter the password: ";
     send(clientSocket, message2, strlen(message2), 0);
@@ -412,44 +417,50 @@ void clientHandler(int clientSocket){
     string strfile;
     bool authenticated = false;
     while (getline(in, strfile)){// Check if the username and password match
-        
-            if (strfile == struser) {
-            // Send the welcome message to the client
-            const char* messagever = "Welcome to the chat server!\n\nTo broadcast the message to all online users type /broadcast <message>\nTo send message to a specific online client type /msg <username> <message>\nTo send message to a specific group type /group_msg <group_name> <message>\nTo create a new group type /create group <group name>\nTo join an existing group type /join group <group name>\nTo leave a group type /leave group <group name>\nTo get a list of all active users type /active\nTo get a list of all groups type /grps\n\nTo log out type /logout\n\nEnjoy your time here!\n ";
-            
             // Lock the mutex using std::lock_guard
             lock_guard<mutex> lock(client_mutex);
 
+            if (strfile == struser) {
+            // Send the welcome message to the client
+            const char* messagever = "Welcome to the chat server!\n\nTo broadcast the message to all online users type /broadcast <message>\nTo send message to a specific online client type /msg <username> <message>\nTo send message to a specific group type /group_msg <group_name> <message>\nTo create a new group type /create group <group name>\nTo join an existing group type /join group <group name>\nTo leave a group type /leave group <group name>\nTo get a list of all active users type /active\nTo get a list of all groups type /grps\n\nTo log out type /logout\n\nType /exit for closing the session\n\nEnjoy your time here!\n ";
+            
+            
             // Add the client to the map of clients
             clients[receivedUsername] = clientSocket;
             send(clientSocket, messagever, strlen(messagever), 0);
             authenticated = true;
-         break;
-        }
-    }
-    if (!authenticated) { // If the username and password do not match, send an authentication failed message
-        const char* messageFail = "Authentication failed!";
-        send(clientSocket, messageFail, strlen(messageFail), 0);
-    }
-    
-    //Continue listening to messages from client without termination
-    char buffer[BUFFER_SIZE]; //create a buffer for incoming messages from the client
-    bool logout_flag = false; //create a flag to check if the client has logged out
-
-    while(!logout_flag){
-        memset(buffer, 0, BUFFER_SIZE); //clear the buffer before receiving new data
-        int bytesReceived = recv(clientSocket, buffer, BUFFER_SIZE, 0); //store the number of bytes(packets) of messages sent from the client
-        //Check if the client has disconnected
-        if(bytesReceived <= 0){
-            cout << "Client " << receivedUsername << " disconnected.\n" << endl;
             break;
         }
-        //Display any message sent by the client
-        cout << receivedUsername << ":" << buffer << endl;
-        //Pass the message into the process_message
-        process_message(buffer, clientSocket, logout_flag);
     }
+    if(!authenticated){
+        const char* messageFail = "\nAuthentication failed!\n\n";
+        send(clientSocket, messageFail, strlen(messageFail), 0);
+        continue;
+        }
+    else{
+        break;
+        }
+    }
+    
+    bool logout_flag = false; //create a flag to check if the client has logged out
+    while(!logout_flag){ //break out of this loop if the client logs out
+    //Continue listening to messages from client without termination
+    char buffer[BUFFER_SIZE]; //create a buffer for incoming messages from the client
+    memset(buffer, 0, BUFFER_SIZE); //clear the buffer before receiving new data
+    int bytesReceived = recv(clientSocket, buffer, BUFFER_SIZE, 0); //store the number of bytes(packets) of messages sent from the client
+    //Check if the client has disconnected
+    if(bytesReceived <= 0){
+            cout << "Client " << receivedUsername << " disconnected.\n" << endl;
+            break;
+    }
+    //Display any message sent by the client
+    cout << receivedUsername << ":" << buffer << endl;
+    //Pass the message into the process_message
+    process_message(buffer, clientSocket, logout_flag);
+
     //Remove the client from the map if client has disconnected and close the client socket
+    
+    }
     {   //lock the mutex using std::lock_guard
         lock_guard<mutex> lock(client_mutex);
 
@@ -466,14 +477,16 @@ void clientHandler(int clientSocket){
         group.second.erase(clientSocket);
         }
     }
-    }
+    
     if (bytesReceived <= 0) {
             close(clientSocket);//close the client socket if the client has disconnected
             return;
         }
     else{
-        clientHandler(clientSocket); //continue listening to messages from the client if the client has not disconnected
+        clientHandler(clientSocket);
     }
+    
+  
 }
 
 int main()
