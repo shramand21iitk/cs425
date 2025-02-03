@@ -77,10 +77,10 @@ int main() {
     recv(client_socket, buffer, BUFFER_SIZE, 0); 
     std::cout << buffer << std::endl;
 
-    // if (std::string(buffer).find("Authentication failed") != std::string::npos) {
-    //     close(client_socket);
-    //     return 1;
-    // }
+    if (std::string(buffer).find("Too many failed login attempts") != std::string::npos) {
+        close(client_socket);
+        return 1;
+    }
 
     // Start thread for receiving messages from server
     std::thread receive_thread(handle_server_messages, client_socket);
