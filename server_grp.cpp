@@ -35,7 +35,7 @@ void create_group(int sock, const string& group_name){ //takes the socket number
 
     //checks if group already exists
     if (groups.find(group_name) != groups.end()) {
-        string errorMsg = "Group " + group_name + " already exists!\n";
+        string errorMsg = "Error: Group " + group_name + " already exists!\n";
         send(sock, errorMsg.c_str(), errorMsg.size(), 0);
         return;
     }
@@ -424,7 +424,7 @@ void clientHandler(int clientSocket) {
             }
         }
         if (!authenticated) {
-            const char* messageFail = "\nWrong credentials! You have 3 total login attempts\n\n"; // Send a message to the client if authentication fails
+            const char* messageFail = "Error: Wrong credentials! You have 3 total login attempts\n\n"; // Send a message to the client if authentication fails
             send(clientSocket, messageFail, strlen(messageFail), 0);
             loginAttempts++; // Increment the login attempts counter
             continue;
@@ -434,7 +434,7 @@ void clientHandler(int clientSocket) {
     }
 
     if (loginAttempts >= 3) {
-        const char* messageFail = "Too many failed login attempts. Authentication failed.\n";
+        const char* messageFail = "Error: Too many failed login attempts. Authentication failed.\n";
         send(clientSocket, messageFail, strlen(messageFail), 0);
         close(clientSocket);
         return;
@@ -487,7 +487,7 @@ int main()
     int server_socket;
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket == -1){
-        cerr <<"Can not create socket\n" << endl;
+        cerr <<"Error: Can not create socket\n" << endl;
         return 1;
     }
 
@@ -499,12 +499,12 @@ int main()
 
     //bind the socket to ip and port
     if(bind(server_socket, (sockaddr*)&serv_sock_addr, sizeof(serv_sock_addr)) == -1){
-        cerr << "Can not bind to IP/Port\n" <<endl;
+        cerr << "Error: Can not bind to IP/Port\n" <<endl;
         return 2;
     }
     //start listening on the socket
     if (listen(server_socket, SOMAXCONN) == -1){
-        cerr << "Can't listen via socket\n" <<endl;
+        cerr << "Error: Can't listen via socket\n" <<endl;
         return 3;
     }
     
@@ -519,7 +519,7 @@ int main()
         //awaits a connection, and upon recieving one creates a new socket to communicate
         client_socket = accept(server_socket, (sockaddr*)&clt_sock_addr, &clientSize);
         if (client_socket == -1) {
-            cerr << "Problem with client connecting!\n" <<endl;
+            cerr << "Error: Problem with client connecting!\n" <<endl;
             return 4;
         }
         //On successful connection of client to the server, create a new thread for the client and then call the function to handle the client

@@ -37,25 +37,6 @@ The server is built using C++ and utilizes socket programming, multithreading, a
    ./client_grp
    ```
 
-<!-- ## Features 
-1. **Client Connection:**
-   - Authentication with username and password.
-   - Prevents multiple connections with the same username.
-   - Logout functionality.
-
-2. **Messaging:**
-   - Broadcast messages to all connected clients.
-   - Send private messages to specific users.
-   - Send messages to group members.
-
-3. **Group Management:**
-   - Create new groups.
-   - Join existing groups.
-   - Leave groups.
-
-4. **Statistics:**
-   - List all active users with socket numbers
-   - List all groups and their members with socket numbers -->
 
 ## Features Brief
 
@@ -68,7 +49,7 @@ Server is listening for incoming clients on port number 12345...
 
 ```
 - Ability to accept multiple concurrent client connections.
-![alt text](image-6.png)
+![alt text](readme_files/image-6.png)
 
 
 - Maintains list of clients connected with usernames
@@ -175,20 +156,20 @@ Enter the username:
 ```
 ### Messaging Features
 - Broadcast messages can be sent to all connected clients using `/broadcast <message>`
-![alt text](image-2.png)
+![alt text](readme_files/image-2.png)
 - Private messages can be sent using `/msg <username> <message> `
-![alt text](image-1.png)
+![alt text](readme_files/image-1.png)
 - Group messages can be sent using `/group_msg <group_name> <message>`.  Non-group members can't send or recieve messages.
-![alt text](image-4.png)
+![alt text](readme_files/image-4.png)
 
 
 ### Group Management 
 - `/create group <group name>` creates a new group. Users can easily see available groups with list of all active users using `/grps`. Using the `/create_group` command users can create new groups with themselves as the first member.
-![alt text](image.png)
+![alt text](readme_files/image.png)
 - `/join group <group name>` for joining an existing group. All members in that group are notified about the new user and the list of active users in that group is updated, visible to all users.
-![alt text](image-3.png)
+![alt text](readme_files/image-3.png)
 - `/leave group <group name>` to leave a group. If all members leave the group the group is deleted.
-![alt text](image-5.png)
+![alt text](readme_files/image-5.png)
 
 - Mapping between group names and their members is maintained.
 ```sh
@@ -224,11 +205,11 @@ unordered_map<string, unordered_set<int>>groups; //unordered map, group name > c
 
 ### Threading Model
 - **Decision:** Create a new thread for each client connection.
-- **Reason:** This allows the server to handle multiple clients concurrently without blocking on any single client.
+- **Reason:** Creating a new thread for each client connection allows the server to handle multiple clients concurrently. They also share the same memory space, which makes it easier to share data between threads using shared data structures. This is particularly useful for maintaining the list of connected clients and groups.
 
 ### Synchronization
 - **Decision:** Use mutexes to protect shared data structures.
-- **Reason:** Ensures thread-safe access to shared resources like the client list and group list, preventing race conditions.
+- **Reason:** Ensures thread-safe access to shared resources like the client list and group list, preventing race conditions and maintain data consistency in a multi-threaded environment.
 
 ### Authentication
 - **Decision:** Allow multiple login attempts even after failed authentication detection.
@@ -249,27 +230,158 @@ unordered_map<string, unordered_set<int>>groups; //unordered map, group name > c
 - **Reason:** Privacy.
 ### 
 
-
+## Implementation
 ### High-Level Idea of Important Functions
-- **`clientHandler(int clientSocket)`**: Handles communication with a single client.
-- **`process_message(const string& message, int client_socket, bool& logout_flag)`**: Processes commands sent by the client.
-- **`create_group(int sock, const string& group_name)`**: Creates a new group.
-- **`join_group(int sock, const string& group_name)`**: Adds a client to an existing group.
-- **`leave_group(int sock, const string& group_name)`**: Removes a client from a group.
-- **`broadcast_message(int sock, const string& msg)`**: Sends a message to all clients.
-- **`client_message(int sock, const string& name, const string& msg)`**: Sends a private message to a specific client.
+
+- **`clientHandler(int clientSocket)`**: 
+  - This function is responsible for handling all communication with a single client. It runs in a separate thread for each client connection.
+  - It continuously listens for messages from the client, processes the received messages, and sends appropriate responses back to the client.
+  - It also handles client authentication, command processing, and ensures the client is properly logged out when the connection is closed.
+
+- **`process_message(const string& message, int client_socket, bool& logout_flag)`**: 
+  - This function processes the commands sent by the client.
+  - It parses the message to determine the command and its arguments.
+  - Based on the command, it calls the appropriate function to handle the request (e.g., broadcasting a message, sending a private message, creating a group, etc.).
+  - It sets the `logout_flag` to true if the client requests to log out.
+
+- **`create_group(int sock, const string& group_name)`**: 
+  - This function creates a new group with the specified name.
+  - It locks the `client_mutex` to ensure thread-safe access to the `groups` data structure.
+  - It checks if the group already exists and sends an error message to the client if it does.
+  - If the group does not exist, it creates the group and adds the client as the first member.
+
+- **`join_group(int sock, const string& group_name)`**: 
+  - This function adds a client to an existing group.
+  - It locks the `client_mutex` to ensure thread-safe access to the `groups` data structure.
+  - It checks if the group exists and sends an error message to the client if it does not.
+  - If the group exists, it adds the client to the group and notifies all group members about the new member.
+
+- **`leave_group(int sock, const string& group_name)`**: 
+  - This function removes a client from a group.
+  - It locks the `client_mutex` to ensure thread-safe access to the `groups` data structure.
+  - It checks if the group exists and sends an error message to the client if it does not.
+  - If the group exists, it removes the client from the group and notifies all group members about the departure.
+  - If the group becomes empty after the client leaves, it deletes the group.
+
+- **`broadcast_message(int sock, const string& msg)`**: 
+  - This function sends a message to all connected clients.
+  - It locks the `client_mutex` to ensure thread-safe access to the `clients` data structure.
+  - It iterates through all connected clients and sends the message to each one.
+
+- **`client_message(int sock, const string& name, const string& msg)`**: 
+  - This function sends a private message to a specific client.
+  - It locks the `client_mutex` to ensure thread-safe access to the `clients` data structure.
+  - It checks if the specified client is connected and sends the message if they are.
+  - If the specified client is not connected, it sends an error message to the sender.
 
 ### Code Flow
 
+1. **Server Initialization**:
+   - The server socket is created and bound to a specific port (default is 12345).
+   - The server starts listening for incoming client connections.
+
+2. **Accepting Client Connections**:
+   - The server enters a loop where it accepts new client connections.
+   - For each new client connection, a new thread is created to handle the client using the `clientHandler` function.
+
+3. **Client Authentication**:
+   - The `clientHandler` function prompts the client for a username and password.
+   - The credentials are checked against the `users` data structure.
+   - If authentication is successful, the client is added to the `clients` data structure and a welcome message is sent.
+   - If authentication fails, the client is given up to three attempts before being disconnected.
+
+4. **Command Processing**:
+   - The `clientHandler` function continuously listens for messages from the client.
+   - Each message is passed to the `process_message` function for command processing.
+   - The `process_message` function parses the command and calls the appropriate function to handle the request.
+
+5. **Group Management**:
+   - Clients can create, join, and leave groups using the `/create_group`, `/join_group`, and `/leave_group` commands.
+   - The `create_group`, `join_group`, and `leave_group` functions handle these requests and update the `groups` data structure accordingly.
+
+6. **Messaging**:
+   - Clients can send broadcast messages using the `/broadcast` command.
+   - Clients can send private messages using the `/msg` command.
+   - Clients can send group messages using the `/group_msg` command.
+   - The `broadcast_message`, `client_message`, and `group_message` functions handle these requests and send the messages to the appropriate recipients.
+
+7. **Client Logout**:
+   - Clients can log out using the `/logout` command.
+   - The `clientHandler` function sets the `logout_flag` and removes the client from the `clients` data structure.
+   - The client connection is closed and the thread handling the client terminates.
+
+## Code Flow Diagram
+
+```mermaid
+graph TD;
+    A[Start Server] -->|Socket Initialization| B[Bind to IP/Port]
+    B --> C[Listen for Connections]
+    C -->|Client Connects| D[Authenticate User]
+    
+    D -->|Success| E[Handle Client Messages]
+    D -->|Failure| X[Reject Connection]
+
+    E --> |/msg <user> <message>| F[Private Message]
+    E --> |/broadcast <message>| G[Broadcast Message]
+    E --> |/create_group <group>| H[Create Group]
+    E --> |/join_group <group>| I[Join Group]
+    E --> |/leave_group <group>| J[Leave Group]
+    E --> |/group_msg <group> <message>| K[Group Message]
+    E --> |/active| L[Show Active Users]
+    E --> |/grps| M[Show Groups]
+    E --> |/logout| N[Logout User]
+
+    N --> Z[Remove User from Groups & Clients] --> C
+    X --> C
+    
+
+    %% Data Management
+    subgraph Data Management
+        DM1[clients: username → client socket]
+        DM2[users: username → password]
+        DM3[groups: group name → client sockets]
+    end
+
+    %% Link Data Management to Functionalities
+    D --> DM2
+    E --> DM1
+    H --> DM3
+    I --> DM3
+    J --> DM3
+    K --> DM3
+    N --> DM1
+    F --> DM1
+    G --> DM1
+    L --> DM1
+    M --> DM3
+
+
+```
 
 ## Testing
+### Stress Testing
+- Simulated multiple clients connecting and sending messages simultaneously to ensure the server handles concurrency.
+
+- The following table provides a summary of four stress tests conducted with different maximum loads, where load can be increased by increasing number of users, and number of messages sent by each.
+
+| Max msgs per client | Max threads per client | Total Clients | Messages Sent | Auth Success | Auth Failures | Errors | Avg Response Time (s) | Throughput (msg/sec) |
+|-------------|-------------|--------------|--------------|--------------|--------------|--------|----------------------|----------------------|
+| 20        | 5       | 7            | 234          | 21           | 0            | 33     | 0.0258               | 1.67                 |
+| 50        | 10      | 7            | 1360         | 57           | 0            | 69     | 0.0125               | 3.89                 |
+| 50        | 50      | 7            | 1394         | 58           | 0            | 349    | 0.0172               | 3.98                 |
+| 200       | 50      | 7            | 20894        | 216          | 0            | 349    | 0.0034               | 14.92                |
+
+#### Observations
+- The number of messages sent increased significantly in the last test.
+- Error count spiked in the third and fourth tests.
+- Average response time decreased as message throughput increased, suggesting improved efficiency under load.
+- Authentication failures were consistently zero across all tests.
+
+This summary helps in analyzing system performance under varying loads.
 
 ### Correctness Testing
 - Verified that clients can connect, authenticate, and send messages.
 - Tested group creation, joining, and leaving functionalities.
-
-### Stress Testing
-- Simulated multiple clients connecting and sending messages simultaneously to ensure the server handles concurrency.
 
 ## Restrictions
 
@@ -280,31 +392,67 @@ unordered_map<string, unordered_set<int>>groups; //unordered map, group name > c
 
 ## Challenges
 
-- **Concurrency Issues:** Faced race conditions which were resolved by using mutexes.
-- **Authentication:** Ensuring secure and reliable authentication was challenging.
-- **Thread Management:** Managing multiple threads efficiently without causing resource exhaustion.
+### Challenges
+
+- **Concurrency Issues:** 
+  - **Challenge:** Faced race conditions when multiple threads accessed shared data structures simultaneously.
+  - **Solution:** Used mutexes to ensure thread-safe access to shared resources like the client list and group list, preventing race conditions and ensuring data consistency.
+
+- **Authentication:** 
+  - **Challenge:** Ensuring secure and reliable authentication while allowing multiple login attempts.
+  - **Solution:** Implemented a mechanism to allow up to 3 login attempts before closing the client socket. This involved careful handling of user credentials and managing the state of each client connection.
+
+- **Thread Management:** 
+  - **Challenge:** Managing multiple threads efficiently without causing resource exhaustion or performance degradation.
+  - **Solution:** Created a new thread for each client connection to handle communication concurrently. Used `std::thread` and `detach` to allow threads to run independently, ensuring that the server remains responsive and scalable.
+
+- **Resource Management:**
+  - **Challenge:** Ensuring that resources such as sockets and threads are properly managed and released.
+  - **Solution:** Implemented proper cleanup mechanisms to close client sockets and remove clients from data structures when they disconnect or log out.
+
+- **Error Handling:**
+  - **Challenge:** Handling various error scenarios such as client disconnections, invalid commands, and network issues.
+  - **Solution:** Added comprehensive error handling to manage different scenarios gracefully, ensuring that the server remains stable and continues to operate correctly.
+
+- **Synchronization:**
+  - **Challenge:** Ensuring that all shared data structures are accessed in a thread-safe manner.
+  - **Solution:** Used `std::lock_guard` to lock mutexes when accessing or modifying shared data structures, ensuring that only one thread can access the data at a time.
+
+
+- **Testing:**
+  - **Challenge:** Testing the server under various conditions, including high load, network failures, and edge cases.
+  - **Solution:** Conducted extensive testing, including unit tests, integration tests, and stress tests, to ensure the server's robustness and reliability. Simulated different network conditions and client behaviors to identify and fix potential issues.
+
+- **User Management:**
+  - **Challenge:** Managing user sessions and ensuring that users can log in, log out, and switch accounts seamlessly.
+  - **Solution:** Implemented robust session management mechanisms to handle user authentication, session tracking, and account switching efficiently.
+
 
 
 ## Contribution of Each Member
 
-- **Ravija Chandel (210835)** 
-- **Shaurya Singh (218070969)** 
-- **Shraman Das ()** 
+The following table outlines the contributions of the three main members of the project:
+
+| Contributor [Roll Number] | Features Implemented   | Code Contribution (%) | Documentation Contribution (%) | Testing & Debugging (%) |
+|---------------------------|----------------------------------------------|-----|-----|-----|
+| Ravija Chandel [210835]           | Messaging (group_message, client_message, broadcast_message, process_message), Debugging | 32%  | 36%  | 32%  |
+| Shaurya Singh [218070969]       | Group Management (create_group, join_group, leave_group, print_groups, print_clients), Server Optimization        | 36%  | 32%  | 32%  |
+| Shraman Das [218070996]       | Authentication, Client Connection (clientHandler), Stress Testing       | 32%  | 32%  | 36%  |
 
 ## Sources Referred
-
-- "Beej's Guide to Network Programming"
-- C++ reference documentation
-- Various online tutorials on socket programming and multithreading
+1. **Books:**  
+- Computer Networking:  A Top Down Approach, 8th Edition
+2. **Blogs/Articles/Videos:**
+- [Creating a TCP Server in C++](https://www.youtube.com/watch?v=cNdlrbZSkyQ)
+- [Creating a TCP Client in C++](https://www.youtube.com/watch?v=fmn-pRvNaho&t=1220s)
 
 ## Declaration
 
-We declare that we did not indulge in plagiarism and the work submitted is our own.
+We have read the CSE department’s anti-cheating policy available at https://www.cse.iitk.ac.in/pages/AntiCheatingPolicy.html. We understand that plagiarism is a severe
+offense. We have solved this assignment ourselves without indulging in any plagiarism.
 
 ## Feedback
 
 - The assignment was challenging and provided a good learning experience.
 - It would be helpful to have more detailed guidelines on error handling and edge cases.
 
-## Contributing
-Contributions are welcome! The repository will be public soon. Please fork the repository and submit a pull request. 
