@@ -424,7 +424,7 @@ void clientHandler(int clientSocket) {
             }
         }
         if (!authenticated) {
-            const char* messageFail = "\nAuthentication failed!\n\n"; // Send a message to the client if authentication fails
+            const char* messageFail = "\nWrong credentials! You have 3 total login attempts\n\n"; // Send a message to the client if authentication fails
             send(clientSocket, messageFail, strlen(messageFail), 0);
             loginAttempts++; // Increment the login attempts counter
             continue;
@@ -434,7 +434,7 @@ void clientHandler(int clientSocket) {
     }
 
     if (loginAttempts >= 3) {
-        const char* messageFail = "Too many failed login attempts. Connection closed.\n";
+        const char* messageFail = "Too many failed login attempts. Authentication failed.\n";
         send(clientSocket, messageFail, strlen(messageFail), 0);
         close(clientSocket);
         return;
