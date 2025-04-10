@@ -68,9 +68,8 @@ void receive_syn() {
     int one = 1;
     if (setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
         perror("setsockopt() failed");
-        
+        exit(EXIT_FAILURE);
     }
-
 
     char buffer[65536];
     struct sockaddr_in source_addr;
