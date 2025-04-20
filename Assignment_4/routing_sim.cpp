@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <algorithm>
 
 using namespace std;
 
@@ -54,9 +55,33 @@ void simulateLSR(const vector<vector<int>>& graph) {
         vector<int> prev(n, -1);
         vector<bool> visited(n, false);
         dist[src] = 0;
-        
-         //TODO: Complete this
-        
+        //TODO: Complete this
+        // Dijkstra's algorithm for node src
+        //Run the algorithm as long as there are unvisited nodes
+        while (any_of(visited.begin(), visited.end(), [](bool v){ return !v; })) {
+            // Find the unvisited node with the smallest distance
+            int mindist = INF, nbr = -1;
+            // Loop through all nodes to find the minimum distance
+            for (int i = 0; i < n; ++i) {
+                if (!visited[i] && dist[i] < mindist) {
+                    mindist = dist[i];
+                    nbr = i;
+                }
+            }
+            if (nbr == -1) break; // All reachable nodes are visited
+            visited[nbr] = true; // Mark the node as visited
+            // Update distances to neighbors
+            // Loop through all neighbors of the current node
+            for (int j = 0; j < n; ++j) {
+                if (!visited[j] && graph[nbr][j] != INF) {
+                    int newDist = dist[nbr] + graph[nbr][j];
+                    if (newDist < dist[j]) {
+                        dist[j] = newDist;
+                        prev[j] = nbr;
+                    }
+                }
+            }
+        }
         printLSRTable(src, dist, prev);
     }
 }
