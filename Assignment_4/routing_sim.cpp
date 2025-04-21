@@ -30,14 +30,19 @@ void simulateDVR(const vector<vector<int>>& graph) {
 
     //TODO: Complete this
     // Initialize next hop and distance tables
+    // Loop through every source node
     for (int src=0; src<n; ++src){
+        // Loop thorugh every destination node to find neighbours of the source node
         for (int dest=0; dest<n; ++dest){
+            // If source and destination are the same, set distance to 0 and next hop to source
             if (src == dest) {
                 dist[src][dest] = 0;
                 nextHop[src][dest] = src;
+            // If there is a direct link between source and destination, set distance from the weight of direct graph link and next hop
             } else if (graph[src][dest] != INF) {
                 dist[src][dest] = graph[src][dest];
                 nextHop[src][dest] = dest;
+            // If there is no direct link between source and destination, set distance to INF and next hop to -1
             } else {
                 dist[src][dest] = INF;
                 nextHop[src][dest] = -1;
@@ -46,27 +51,39 @@ void simulateDVR(const vector<vector<int>>& graph) {
     }
     // Run the Bellman-Ford algorithm as long as updates are being made
     while (true){
+        // Initialize updated flag to false
         bool updated = false;
+        // Loop through every source node
         for (int src = 0; src<n; ++src){
+            // Loop through every destination node 
             for (int dest=0; dest<n; ++dest){
-                if (src == dest) continue; //Skip self-loops
+                //Skip self-loops
+                if (src == dest) continue; 
+                // Loop through every neighbour of the source node
                 for (int nbr=0; nbr<n; ++nbr){
-                    if (nbr == src || nbr == dest) continue; //Skip self-loops
+                    //Skip self-loops
+                    if (nbr == src || nbr == dest) continue; 
+                    // If the neighbour is not the source or destination node, and there is a path from source to neighbour and from neighbour to destination
                     if (dist[src][nbr] != INF && dist[nbr][dest] != INF){
+                        // Then calculate the alternate cost 
                         int alternateCost = dist[src][nbr] + dist[nbr][dest];
+                        //Check if it is less than the current cost
                         if (alternateCost < dist[src][dest]){
+                            // If it is, update the distance and next hop tables
                             dist[src][dest] = alternateCost;
                             nextHop[src][dest] = nextHop[src][nbr];
-                            updated = true; // An update was made
+                            // Set the updated flag to true
+                            updated = true;
                         }
 
                     }
                 }
             }
         }
-        if (!updated) break; // No updates means we are done
+        // No updates means the algorithm has converged and can terminate
+        if (!updated) break; 
     }
-
+    // Print the final routing tables for each node
     cout << "--- DVR Final Tables ---\n";
     for (int i = 0; i < n; ++i) printDVRTable(i, dist, nextHop);
 }
@@ -100,18 +117,23 @@ void simulateLSR(const vector<vector<int>>& graph) {
             int mindist = INF, nbr = -1;
             // Loop through all nodes to find the minimum distance
             for (int i = 0; i < n; ++i) {
+                // If the node is unvisited and its distance is less than the current minimum distance
                 if (!visited[i] && dist[i] < mindist) {
+                    // Then update the minimum distance and the node
                     mindist = dist[i];
                     nbr = i;
                 }
             }
-            if (nbr == -1) break; // All reachable nodes are visited
-            visited[nbr] = true; // Mark the node as visited
-            // Update distances to neighbors
-            // Loop through all neighbors of the current node
+            // If no unvisited nodes are reachable, break. This means, all reachable nodes are visited
+            if (nbr == -1) break; 
+            // Mark the node as visited
+            visited[nbr] = true; 
+            // Loop through all neighbors of the current node which are unvisited
             for (int j = 0; j < n; ++j) {
                 if (!visited[j] && graph[nbr][j] != INF) {
+                    // Calculate the alternate distance from the current node to the destination node via the neighbour
                     int newDist = dist[nbr] + graph[nbr][j];
+                    // If the new distance is less than the current distance, update the distance and previous node
                     if (newDist < dist[j]) {
                         dist[j] = newDist;
                         prev[j] = nbr;
@@ -119,6 +141,7 @@ void simulateLSR(const vector<vector<int>>& graph) {
                 }
             }
         }
+        // Print the routing table for the current source node
         printLSRTable(src, dist, prev);
     }
 }
