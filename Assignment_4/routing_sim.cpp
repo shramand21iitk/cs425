@@ -29,6 +29,43 @@ void simulateDVR(const vector<vector<int>>& graph) {
     vector<vector<int>> nextHop(n, vector<int>(n));
 
     //TODO: Complete this
+    // Initialize next hop and distance tables
+    for (int src=0; src<n; ++src){
+        for (int dest=0; dest<n; ++dest){
+            if (src == dest) {
+                dist[src][dest] = 0;
+                nextHop[src][dest] = src;
+            } else if (graph[src][dest] != INF) {
+                dist[src][dest] = graph[src][dest];
+                nextHop[src][dest] = dest;
+            } else {
+                dist[src][dest] = INF;
+                nextHop[src][dest] = -1;
+            }
+        }
+    }
+    // Run the Bellman-Ford algorithm as long as updates are being made
+    while (true){
+        bool updated = false;
+        for (int src = 0; src<n; ++src){
+            for (int dest=0; dest<n; ++dest){
+                if (src == dest) continue; //Skip self-loops
+                for (int nbr=0; nbr<n; ++nbr){
+                    if (nbr == src || nbr == dest) continue; //Skip self-loops
+                    if (dist[src][nbr] != INF && dist[nbr][dest] != INF){
+                        int alternateCost = dist[src][nbr] + dist[nbr][dest];
+                        if (alternateCost < dist[src][dest]){
+                            dist[src][dest] = alternateCost;
+                            nextHop[src][dest] = nextHop[src][nbr];
+                            updated = true; // An update was made
+                        }
+
+                    }
+                }
+            }
+        }
+        if (!updated) break; // No updates means we are done
+    }
 
     cout << "--- DVR Final Tables ---\n";
     for (int i = 0; i < n; ++i) printDVRTable(i, dist, nextHop);
