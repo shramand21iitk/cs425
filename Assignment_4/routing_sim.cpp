@@ -37,7 +37,7 @@ void simulateDVR(const vector<vector<int>>& graph) {
             // If source and destination are the same, set distance to 0 and next hop to source
             if (src == dest) {
                 dist[src][dest] = 0;
-                nextHop[src][dest] = src;
+                nextHop[src][dest] = -1;
             // If there is a direct link between source and destination, set distance from the weight of direct graph link and next hop
             } else if (graph[src][dest] != INF) {
                 dist[src][dest] = graph[src][dest];

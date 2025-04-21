@@ -27,7 +27,12 @@ To run the executable output file with suppose input1.txt, run:
 ./main.o input1.txt
 ```
 
-## Link State Routing (Djikstra's Akgorithm) - Pseudocode
+## Link State Routing (Djikstra's Akgorithm) 
+- Each node knows the entire network topology.
+- Each node uses Dijkstra’s algorithm to compute the shortest path to each other node.
+- The result is a routing table that lists the shortest path to every other node in the network.
+
+### Pseudocode
 ```
 For each node in graph:
    Initialize:
@@ -51,7 +56,12 @@ For each node in graph:
 Output routing table using dist[] and prev[]
 ```
 
-## Distance Vector Routing (Bellman-Ford equation) - Pseudocode
+## Distance Vector Routing (Bellman-Ford equation) 
+- Each node starts with its own routing table, which initially contains the direct link cost to each other node.
+- Nodes exchange their routing table with their immediate neighbors and update their tables accordingly.
+- This process repeats until there are no further updates.
+
+### Pseudocode
 ```
 Initialize: 
    For each node src: 
